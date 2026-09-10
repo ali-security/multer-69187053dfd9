@@ -1,8 +1,12 @@
 name: ci
 
 on:
-- pull_request
-- push
+  workflow_dispatch:
+    inputs:
+      test-filter:
+        description: Optional mocha spec/grep filter; empty runs the full suite
+        required: false
+        default: ''
 
 permissions:
   contents: read
@@ -13,6 +17,7 @@ jobs:
       checks: write  # for coverallsapp/github-action to create new checks
       contents: read  # for actions/checkout to fetch code
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:
@@ -135,28 +140,33 @@ jobs:
     - name: Run tests
       shell: bash
       run: |
-        if npm -ps ls nyc | grep -q nyc; then
+        if [ -n "${{ inputs.test-filter }}" ]; then
+          npx mocha --reporter spec --exit --check-leaks ${{ inputs.test-filter }}
+        elif npm -ps ls nyc | grep -q nyc; then
           npm run test-ci
         else
           npm test
         fi
 
-    - name: Collect code coverage
-      uses: coverallsapp/github-action@648a8eb78e6d50909eff900e4ec85cab4524a45b # master
-      if: steps.list_env.outputs.nyc != ''
-      with:
-        github-token: ${{ secrets.GITHUB_TOKEN }}
-        flag-name: run-${{ matrix.test_number }}
-        parallel: true
-
-  coverage:
+  pack:
     permissions:
-      checks: write  # for coverallsapp/github-action to create new checks
-    needs: test
+      contents: read  # for actions/checkout to fetch code
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
-    - name: Upload code coverage
-      uses: coverallsapp/github-action@648a8eb78e6d50909eff900e4ec85cab4524a45b # master
+    - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+    - name: Install Node.js 22.10.0
+      uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
       with:
-        github-token: ${{ secrets.GITHUB_TOKEN }}
-        parallel-finished: true
+        node-version: 22.10.0
+
+    - name: Pack tarball
+      run: npm pack
+
+    - name: Upload tarball
+      uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+      with:
+        name: npm-tarball
+        path: ./multer-*.tgz
+        if-no-files-found: error
